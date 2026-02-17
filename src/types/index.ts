@@ -32,6 +32,7 @@ export interface MissingExpenseAlert {
 export interface MonthlySummary {
   month: MonthKey;
   totalByCurrency: Record<string, number>;
+  incomeByCurrency: Record<string, number>;
   byCategory: Record<string, Record<string, number>>;
   transactionCount: number;
 }

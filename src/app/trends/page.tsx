@@ -19,6 +19,8 @@ interface TrendsData {
   categoryBreakdown: { category: string; amount: number }[];
   tagBreakdown: { tag: string; amount: number; count: number }[];
   walletBreakdown: TimeSeriesPoint[];
+  incomeExpenseTimeSeries?: TimeSeriesPoint[];
+  incomeCategoryBreakdown?: { category: string; amount: number }[];
 }
 
 export default function TrendsPage() {
@@ -71,8 +73,11 @@ export default function TrendsPage() {
     fetchData();
   }, [fetchData]);
 
-  const timeSeriesKeys =
-    data?.timeSeries?.length
+  const hasIncomeExpenseSeries = (data?.incomeExpenseTimeSeries?.length ?? 0) > 0;
+  const chartData = hasIncomeExpenseSeries ? data!.incomeExpenseTimeSeries! : (data?.timeSeries ?? []);
+  const timeSeriesKeys = hasIncomeExpenseSeries
+    ? ["expenses", "income"]
+    : data?.timeSeries?.length
       ? [...new Set(data.timeSeries.flatMap((p) => Object.keys(p).filter((k) => k !== "period")))]
       : [];
 
@@ -116,8 +121,10 @@ export default function TrendsPage() {
   return (
     <PageShell title="Trends">
       <div className="space-y-6">
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card p-4">
-          <PeriodPicker
+        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-card p-4">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted">Period</label>
+            <PeriodPicker
             value={{ startDate: filters.startDate, endDate: filters.endDate }}
             onChange={(range) =>
               setFilters((prev) => ({
@@ -127,6 +134,7 @@ export default function TrendsPage() {
               }))
             }
           />
+          </div>
           <FilterBar
             filters={filters}
             onChange={setFilters}
@@ -149,7 +157,7 @@ export default function TrendsPage() {
             {/* Spending Over Time */}
             <div className="rounded-lg border border-border bg-card p-4 lg:col-span-2">
               <h2 className="mb-4 text-lg font-semibold">
-                Spending Over Time
+                {hasIncomeExpenseSeries ? "Income & Spending Over Time" : "Spending Over Time"}
                 {currencyIndicator && (
                   <span className="ml-2 text-sm font-normal text-muted">
                     {currencyIndicator}
@@ -157,7 +165,7 @@ export default function TrendsPage() {
                 )}
               </h2>
               <SpendingOverTime
-                data={data?.timeSeries ?? []}
+                data={chartData}
                 keys={timeSeriesKeys}
                 height={300}
               />
@@ -243,6 +251,24 @@ export default function TrendsPage() {
                       category: t.tag,
                       amount: tagSort === "amount" ? t.amount : t.count,
                     }))}
+                  height={350}
+                />
+              </div>
+            )}
+
+            {/* Income Categories */}
+            {(data?.incomeCategoryBreakdown?.length ?? 0) > 0 && (
+              <div className="rounded-lg border border-border bg-card p-4">
+                <h2 className="mb-4 text-lg font-semibold">
+                  Income Categories
+                  {currencyIndicator && (
+                    <span className="ml-2 text-sm font-normal text-muted">
+                      {currencyIndicator}
+                    </span>
+                  )}
+                </h2>
+                <CategoryBreakdownBar
+                  data={data?.incomeCategoryBreakdown ?? []}
                   height={350}
                 />
               </div>

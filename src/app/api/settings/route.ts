@@ -11,7 +11,7 @@ export async function GET() {
         settings.googleServiceAccountPrivateKey
       ),
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "Failed to load settings" },
       { status: 500 }
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true, testResult });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "Failed to save settings" },
       { status: 500 }

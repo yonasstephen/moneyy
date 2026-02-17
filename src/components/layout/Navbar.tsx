@@ -7,6 +7,7 @@ import { useCurrency } from "@/components/providers/CurrencyProvider";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
+  { href: "/transactions", label: "Transactions" },
   { href: "/trends", label: "Trends" },
   { href: "/reports", label: "Reports" },
   { href: "/missing", label: "Missing" },

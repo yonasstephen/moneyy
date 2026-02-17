@@ -2,6 +2,14 @@ import { format } from "date-fns";
 import { Expense, MonthlySummary, TimeSeriesPoint, MonthKey, GroupBy, ConversionContext } from "@/types";
 import { convertAmount } from "@/lib/exchangeRates";
 
+export type AmountMode = "expense" | "income" | "all";
+
+function shouldInclude(amount: number, mode: AmountMode): boolean {
+  if (mode === "expense") return amount < 0;
+  if (mode === "income") return amount > 0;
+  return amount !== 0;
+}
+
 function formatPeriod(date: Date, groupBy: GroupBy): string {
   switch (groupBy) {
     case "day":
@@ -44,28 +52,36 @@ export function getMonthlySummaries(expenses: Expense[], conversion?: Conversion
 
   for (const [month, items] of grouped) {
     const totalByCurrency: Record<string, number> = {};
+    const incomeByCurrency: Record<string, number> = {};
     const byCategory: Record<string, Record<string, number>> = {};
 
     for (const e of items) {
-      // Only count expenses (negative amounts)
-      if (e.amount >= 0) continue;
-
       const currKey = conversion ? conversion.targetCurrency : e.currency;
       const absAmount = conversion
         ? Math.abs(convertAmount(e.amount, e.currency, conversion))
         : Math.abs(e.amount);
 
-      totalByCurrency[currKey] =
-        (totalByCurrency[currKey] ?? 0) + absAmount;
+      if (e.amount < 0) {
+        // Expense
+        totalByCurrency[currKey] =
+          (totalByCurrency[currKey] ?? 0) + absAmount;
 
-      if (!byCategory[e.category]) byCategory[e.category] = {};
-      byCategory[e.category][currKey] =
-        (byCategory[e.category][currKey] ?? 0) + absAmount;
+        if (!byCategory[e.category]) byCategory[e.category] = {};
+        byCategory[e.category][currKey] =
+          (byCategory[e.category][currKey] ?? 0) + absAmount;
+      } else if (e.amount > 0) {
+        // Income
+        incomeByCurrency[currKey] =
+          (incomeByCurrency[currKey] ?? 0) + absAmount;
+      }
     }
 
     // Round values
     for (const k of Object.keys(totalByCurrency)) {
       totalByCurrency[k] = Math.round(totalByCurrency[k] * 100) / 100;
+    }
+    for (const k of Object.keys(incomeByCurrency)) {
+      incomeByCurrency[k] = Math.round(incomeByCurrency[k] * 100) / 100;
     }
     for (const cat of Object.keys(byCategory)) {
       for (const k of Object.keys(byCategory[cat])) {
@@ -76,8 +92,9 @@ export function getMonthlySummaries(expenses: Expense[], conversion?: Conversion
     summaries.push({
       month,
       totalByCurrency,
+      incomeByCurrency,
       byCategory,
-      transactionCount: items.filter((e) => e.amount < 0).length,
+      transactionCount: items.filter((e) => shouldInclude(e.amount, "expense")).length,
     });
   }
 
@@ -88,7 +105,8 @@ export function getSpendingTimeSeries(
   expenses: Expense[],
   currency?: string,
   groupBy: GroupBy = "month",
-  conversion?: ConversionContext
+  conversion?: ConversionContext,
+  mode: AmountMode = "expense"
 ): TimeSeriesPoint[] {
   const grouped = groupByPeriod(expenses, groupBy);
   const points: TimeSeriesPoint[] = [];
@@ -100,7 +118,7 @@ export function getSpendingTimeSeries(
     const point: TimeSeriesPoint = { period: month };
 
     for (const e of items) {
-      if (e.amount >= 0) continue;
+      if (!shouldInclude(e.amount, mode)) continue;
       if (!conversion && currency && e.currency !== currency) continue;
       const amt = conversion
         ? Math.abs(convertAmount(e.amount, e.currency, conversion))
@@ -125,12 +143,13 @@ export function getSpendingTimeSeries(
 export function getCategoryBreakdown(
   expenses: Expense[],
   currency?: string,
-  conversion?: ConversionContext
+  conversion?: ConversionContext,
+  mode: AmountMode = "expense"
 ): { category: string; amount: number }[] {
   const map: Record<string, number> = {};
 
   for (const e of expenses) {
-    if (e.amount >= 0) continue;
+    if (!shouldInclude(e.amount, mode)) continue;
     if (!conversion && currency && e.currency !== currency) continue;
     const amt = conversion
       ? Math.abs(convertAmount(e.amount, e.currency, conversion))
@@ -149,13 +168,14 @@ export function getCategoryBreakdown(
 export function getTagBreakdown(
   expenses: Expense[],
   currency?: string,
-  conversion?: ConversionContext
+  conversion?: ConversionContext,
+  mode: AmountMode = "expense"
 ): { tag: string; amount: number; count: number }[] {
   const amountMap: Record<string, number> = {};
   const countMap: Record<string, number> = {};
 
   for (const e of expenses) {
-    if (e.amount >= 0) continue;
+    if (!shouldInclude(e.amount, mode)) continue;
     if (!conversion && currency && e.currency !== currency) continue;
     const amt = conversion
       ? Math.abs(convertAmount(e.amount, e.currency, conversion))
@@ -179,12 +199,10 @@ export function getTagBreakdown(
 export function getWalletBreakdown(
   expenses: Expense[],
   currency?: string,
-  conversion?: ConversionContext
+  conversion?: ConversionContext,
+  mode: AmountMode = "expense"
 ): TimeSeriesPoint[] {
   const grouped = groupByMonth(expenses);
-  const wallets = new Set<string>();
-  expenses.forEach((e) => wallets.add(e.wallet));
-
   const sortedKeys = [...grouped.keys()].sort();
   const points: TimeSeriesPoint[] = [];
 
@@ -193,7 +211,7 @@ export function getWalletBreakdown(
     const point: TimeSeriesPoint = { period: month };
 
     for (const e of items) {
-      if (e.amount >= 0) continue;
+      if (!shouldInclude(e.amount, mode)) continue;
       if (!conversion && currency && e.currency !== currency) continue;
       const amt = conversion
         ? Math.abs(convertAmount(e.amount, e.currency, conversion))
@@ -211,4 +229,32 @@ export function getWalletBreakdown(
   }
 
   return points;
+}
+
+export function getIncomeExpenseTimeSeries(
+  expenses: Expense[],
+  currency?: string,
+  groupBy: GroupBy = "month",
+  conversion?: ConversionContext
+): TimeSeriesPoint[] {
+  // When there's no currency filter and no conversion, data has multiple
+  // currency keys (e.g. "USD", "IDR"). Summing those raw numbers is
+  // meaningless, so return an empty array — the dashboard will fall back
+  // to the per-currency spending trend instead.
+  if (!currency && !conversion) return [];
+
+  const expenseSeries = getSpendingTimeSeries(expenses, currency, groupBy, conversion, "expense");
+  const incomeSeries = getSpendingTimeSeries(expenses, currency, groupBy, conversion, "income");
+
+  const incomeMap = new Map<string, number>();
+  for (const p of incomeSeries) {
+    const val = (p.total as number) ?? 0;
+    if (val > 0) incomeMap.set(p.period, val);
+  }
+
+  return expenseSeries.map((p) => ({
+    period: p.period,
+    expenses: (p.total as number) ?? 0,
+    income: incomeMap.get(p.period) ?? 0,
+  }));
 }

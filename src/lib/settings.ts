@@ -46,8 +46,7 @@ export function saveSettings(settings: AppSettings): void {
 
   // Clear auth cache so new credentials take effect
   // Dynamic import to avoid circular dependency at module level
-  const { clearAuthCache } = require("./google/auth");
-  clearAuthCache();
+  import("./google/auth").then(({ clearAuthCache }) => clearAuthCache());
 }
 
 export function maskPrivateKey(key: string): string {

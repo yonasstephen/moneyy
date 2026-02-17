@@ -16,6 +16,7 @@ import { formatNumber } from "@/lib/currency";
 import { TimeSeriesPoint } from "@/types";
 
 const COLORS = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6"];
+const KEY_COLORS: Record<string, string> = { expenses: "#ef4444", income: "#22c55e" };
 
 const tooltipStyle = {
   backgroundColor: "var(--card)",
@@ -58,7 +59,7 @@ export function SpendingOverTime({
             <Bar
               key={key}
               dataKey={key}
-              fill={COLORS[i % COLORS.length]}
+              fill={KEY_COLORS[key] ?? COLORS[i % COLORS.length]}
               radius={[4, 4, 0, 0]}
             />
           ))}
@@ -76,7 +77,7 @@ export function SpendingOverTime({
             key={key}
             type="monotone"
             dataKey={key}
-            stroke={COLORS[i % COLORS.length]}
+            stroke={KEY_COLORS[key] ?? COLORS[i % COLORS.length]}
             strokeWidth={2}
             dot={{ r: 3 }}
           />

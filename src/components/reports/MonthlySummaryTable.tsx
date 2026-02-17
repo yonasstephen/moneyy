@@ -23,14 +23,23 @@ export function MonthlySummaryTable({
   }
   const categories = [...allCategories].sort();
 
-  // Collect all currencies across all months
+  // Collect all currencies across all months (expenses + income)
   const allCurrencies = new Set<string>();
   for (const s of summaries) {
     for (const curr of Object.keys(s.totalByCurrency)) {
       allCurrencies.add(curr);
     }
+    if (s.incomeByCurrency) {
+      for (const curr of Object.keys(s.incomeByCurrency)) {
+        allCurrencies.add(curr);
+      }
+    }
   }
   const currencies = [...allCurrencies].sort();
+
+  const hasIncome = summaries.some(
+    (s) => s.incomeByCurrency && Object.values(s.incomeByCurrency).some((v) => v > 0)
+  );
 
   // Single currency mode: either explicitly set or only one exists
   const singleCurrency = currency || (currencies.length === 1 ? currencies[0] : undefined);
@@ -41,6 +50,10 @@ export function MonthlySummaryTable({
 
   function totalByCurr(s: MonthlySummary, curr: string): number {
     return s.totalByCurrency[curr] ?? 0;
+  }
+
+  function incomeByCurr(s: MonthlySummary, curr: string): number {
+    return s.incomeByCurrency?.[curr] ?? 0;
   }
 
   return (
@@ -86,6 +99,32 @@ export function MonthlySummaryTable({
                   </td>
                 ))}
               </tr>
+              {hasIncome && (
+                <tr className="border-b border-border/50">
+                  <td className="px-3 py-2 font-medium text-success">Income</td>
+                  {summaries.map((s) => {
+                    const income = incomeByCurr(s, singleCurrency);
+                    return (
+                      <td key={s.month} className="px-3 py-2 text-right tabular-nums text-success">
+                        {income > 0 ? formatCurrency(income, singleCurrency) : "-"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              )}
+              {hasIncome && (
+                <tr className="font-bold">
+                  <td className="px-3 py-2">Net</td>
+                  {summaries.map((s) => {
+                    const net = incomeByCurr(s, singleCurrency) - totalByCurr(s, singleCurrency);
+                    return (
+                      <td key={s.month} className={`px-3 py-2 text-right tabular-nums ${net >= 0 ? "text-success" : "text-danger"}`}>
+                        {net < 0 ? "-" : ""}{formatCurrency(Math.abs(net), singleCurrency)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              )}
             </>
           ) : (
             // Multi-currency — each cell shows stacked amounts per currency
@@ -125,6 +164,43 @@ export function MonthlySummaryTable({
                   </td>
                 ))}
               </tr>
+              {hasIncome && (
+                <tr className="border-b border-border/50">
+                  <td className="px-3 py-2 font-medium text-success">Income</td>
+                  {summaries.map((s) => (
+                    <td key={s.month} className="px-3 py-2 text-right tabular-nums text-success">
+                      {currencies.map((curr) => {
+                        const income = incomeByCurr(s, curr);
+                        if (income <= 0) return null;
+                        return (
+                          <div key={curr}>
+                            {formatCurrency(income, curr)}
+                          </div>
+                        );
+                      })}
+                      {currencies.every((curr) => incomeByCurr(s, curr) <= 0) && "-"}
+                    </td>
+                  ))}
+                </tr>
+              )}
+              {hasIncome && (
+                <tr className="font-bold">
+                  <td className="px-3 py-2">Net</td>
+                  {summaries.map((s) => (
+                    <td key={s.month} className="px-3 py-2 text-right tabular-nums">
+                      {currencies.map((curr) => {
+                        const net = incomeByCurr(s, curr) - totalByCurr(s, curr);
+                        if (net === 0 && incomeByCurr(s, curr) === 0 && totalByCurr(s, curr) === 0) return null;
+                        return (
+                          <div key={curr} className={net >= 0 ? "text-success" : "text-danger"}>
+                            {net < 0 ? "-" : ""}{formatCurrency(Math.abs(net), curr)}
+                          </div>
+                        );
+                      })}
+                    </td>
+                  ))}
+                </tr>
+              )}
             </>
           )}
         </tbody>

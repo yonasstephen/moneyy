@@ -1,0 +1,8 @@
+services:
+  moneyy:
+    image: ghcr.io/yonasstephen/moneyy:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data

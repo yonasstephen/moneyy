@@ -77,17 +77,19 @@ export default function ReportsPage() {
   // CSV export
   function exportCSV() {
     const isConverted = currencyMode === "convert" && !!globalCurrency;
-    const headers = ["Date", "Category", "Amount", "Currency", "Wallet", "Note"];
+    const headers = ["Date", "Category", "Amount", "Currency", "Type", "Wallet", "Note"];
     if (isConverted) headers.push("Converted Amount", "Converted Currency");
     const rows = [headers.join(",")];
 
     for (const e of filteredExpenses) {
-      if (e.amount >= 0) continue;
+      if (e.amount === 0) continue;
+      const type = e.amount < 0 ? "Expense" : "Income";
       const row = [
         new Date(e.date).toISOString().split("T")[0],
         `"${e.category}"`,
         Math.abs(e.amount).toFixed(2),
         e.currency,
+        type,
         `"${e.wallet}"`,
         `"${e.note.replace(/"/g, '""')}"`,
       ];
@@ -102,7 +104,7 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `expenses-${year}${month ? `-${month}` : ""}.csv`;
+    a.download = `transactions-${year}${month ? `-${month}` : ""}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }

@@ -1,15 +1,28 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { PageShell } from "@/components/layout/PageShell";
 import { SyncButton } from "@/components/ui/SyncButton";
+import { PeriodPicker } from "@/components/ui/PeriodPicker";
 import { SpendingOverTime } from "@/components/charts/SpendingOverTime";
 import { useCurrency } from "@/components/providers/CurrencyProvider";
 import { HashtagText } from "@/components/ui/HashtagText";
 import { TagTransactions } from "@/components/ui/TagTransactions";
 import { formatCurrency } from "@/lib/currency";
-import { Expense, TimeSeriesPoint, GroupBy } from "@/types";
+import { Expense, TimeSeriesPoint, GroupBy, MonthlySummary } from "@/types";
 import { format } from "date-fns";
+
+const LOADING_MESSAGES = [
+  "Crunching your numbers...",
+  "Teaching your dollars to do backflips...",
+  "Combobulating magic for your finances...",
+  "Counting every last penny...",
+  "Summoning the spreadsheet spirits...",
+  "Herding your transactions...",
+  "Balancing the cosmic ledger...",
+  "Wrangling receipts from the void...",
+];
 
 interface DashboardData {
   expenses: Expense[];
@@ -22,6 +35,9 @@ interface DashboardData {
 interface SummaryData {
   timeSeries: TimeSeriesPoint[];
   categoryBreakdown: { category: string; amount: number }[];
+  incomeCategoryBreakdown?: { category: string; amount: number }[];
+  incomeExpenseTimeSeries?: TimeSeriesPoint[];
+  monthlySummaries?: MonthlySummary[];
 }
 
 export default function DashboardPage() {
@@ -30,7 +46,18 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [groupBy, setGroupBy] = useState<GroupBy>("month");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [period, setPeriod] = useState<{ startDate?: string; endDate?: string }>({});
+  const [loadingMsgIndex, setLoadingMsgIndex] = useState(0);
   const { currency: globalCurrency, mode: currencyMode, wallet: globalWallet } = useCurrency();
+
+  // Cycle loading messages during initial load
+  useEffect(() => {
+    if (!loading || data) return;
+    const interval = setInterval(() => {
+      setLoadingMsgIndex((i) => (i + 1) % LOADING_MESSAGES.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [loading, data]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -38,41 +65,35 @@ export default function DashboardPage() {
       const isConverting = currencyMode === "convert" && globalCurrency;
 
       const sumParams = new URLSearchParams();
-      sumParams.set("type", "timeseries");
+      sumParams.set("type", "all");
       sumParams.set("groupBy", groupBy);
       if (isConverting) {
         sumParams.set("convertTo", globalCurrency);
       }
       if (globalWallet) sumParams.set("wallet", globalWallet);
-
-      // Fetch category breakdown for summary cards (covers ALL expenses)
-      const catParams = new URLSearchParams();
-      catParams.set("type", "categories");
-      if (isConverting) {
-        catParams.set("convertTo", globalCurrency);
-      }
-      if (globalWallet) catParams.set("wallet", globalWallet);
+      if (period.startDate) sumParams.set("startDate", period.startDate);
+      if (period.endDate) sumParams.set("endDate", period.endDate);
 
       const expParams = new URLSearchParams();
       expParams.set("limit", "20");
       if (globalWallet) expParams.set("wallet", globalWallet);
+      if (period.startDate) expParams.set("startDate", period.startDate);
+      if (period.endDate) expParams.set("endDate", period.endDate);
 
-      const [expRes, sumRes, catRes] = await Promise.all([
+      const [expRes, sumRes] = await Promise.all([
         fetch(`/api/expenses?${expParams}`),
         fetch(`/api/summary?${sumParams}`),
-        fetch(`/api/summary?${catParams}`),
       ]);
       const expData = await expRes.json();
       const sumData = await sumRes.json();
-      const catData = await catRes.json();
       setData(expData);
-      setSummary({ ...sumData, categoryBreakdown: catData.categoryBreakdown ?? [] });
+      setSummary(sumData);
     } catch (e) {
       console.error("Failed to fetch dashboard data:", e);
     } finally {
       setLoading(false);
     }
-  }, [groupBy, globalCurrency, currencyMode, globalWallet]);
+  }, [groupBy, globalCurrency, currencyMode, globalWallet, period]);
 
   useEffect(() => {
     fetchData();
@@ -80,41 +101,55 @@ export default function DashboardPage() {
 
   const isConverting = currencyMode === "convert" && !!globalCurrency;
 
-  // Compute total spend from category breakdown (covers ALL expenses, not just recent 20)
+  // Compute per-currency totals from monthlySummaries
   const totalByCurrency: Record<string, number> = {};
-  if (summary?.categoryBreakdown) {
-    if (isConverting) {
-      // In convert mode, all categories are already converted — sum into one bucket
-      const total = summary.categoryBreakdown.reduce((s, c) => s + c.amount, 0);
-      totalByCurrency[globalCurrency] = Math.round(total * 100) / 100;
-    } else {
-      // In filter mode, we don't have per-currency breakdown from categories API
-      // Fall back to time series keys which are currency-keyed
-      if (summary?.timeSeries) {
-        for (const point of summary.timeSeries) {
-          for (const [k, v] of Object.entries(point)) {
-            if (k !== "period" && typeof v === "number") {
-              totalByCurrency[k] = (totalByCurrency[k] ?? 0) + v;
-            }
-          }
-        }
-        for (const k of Object.keys(totalByCurrency)) {
-          totalByCurrency[k] = Math.round(totalByCurrency[k] * 100) / 100;
-        }
+  const totalIncomeByCurrency: Record<string, number> = {};
+  if (summary?.monthlySummaries) {
+    for (const ms of summary.monthlySummaries) {
+      for (const [curr, amt] of Object.entries(ms.totalByCurrency)) {
+        totalByCurrency[curr] = (totalByCurrency[curr] ?? 0) + amt;
       }
+      for (const [curr, amt] of Object.entries(ms.incomeByCurrency)) {
+        totalIncomeByCurrency[curr] = (totalIncomeByCurrency[curr] ?? 0) + amt;
+      }
+    }
+    for (const k of Object.keys(totalByCurrency)) {
+      totalByCurrency[k] = Math.round(totalByCurrency[k] * 100) / 100;
+    }
+    for (const k of Object.keys(totalIncomeByCurrency)) {
+      totalIncomeByCurrency[k] = Math.round(totalIncomeByCurrency[k] * 100) / 100;
     }
   }
 
-  const topCategory = summary?.categoryBreakdown?.[0];
+  // All currencies that appear in either spend or income
+  const allCurrencies = [...new Set([...Object.keys(totalByCurrency), ...Object.keys(totalIncomeByCurrency)])];
+  const isMultiCurrency = allCurrencies.length > 1;
 
-  const timeSeriesKeys = summary?.timeSeries?.length
-    ? [...new Set(summary.timeSeries.flatMap((p) => Object.keys(p).filter((k) => k !== "period")))]
-    : [];
+  const hasIncomeExpenseSeries = (summary?.incomeExpenseTimeSeries?.length ?? 0) > 0;
+  const chartData = hasIncomeExpenseSeries ? summary!.incomeExpenseTimeSeries! : (summary?.timeSeries ?? []);
+  const timeSeriesKeys = hasIncomeExpenseSeries
+    ? ["expenses", "income"]
+    : summary?.timeSeries?.length
+      ? [...new Set(summary.timeSeries.flatMap((p) => Object.keys(p).filter((k) => k !== "period")))]
+      : [];
 
   return (
-    <PageShell title="Dashboard" actions={<SyncButton onSynced={fetchData} />}>
+    <PageShell
+      title="Dashboard"
+      actions={
+        <>
+          <PeriodPicker value={period} onChange={setPeriod} />
+          <SyncButton onSynced={fetchData} />
+        </>
+      }
+    >
       {loading && !data ? (
-        <div className="py-12 text-center text-muted">Loading...</div>
+        <div className="flex flex-col items-center justify-center py-24 gap-4">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
+          <p className="text-sm text-muted animate-pulse">
+            {LOADING_MESSAGES[loadingMsgIndex]}
+          </p>
+        </div>
       ) : !data || data.total === 0 ? (
         <div className="py-12 text-center text-muted">
           <p className="text-lg">No expenses loaded</p>
@@ -129,39 +164,63 @@ export default function DashboardPage() {
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
             </div>
           )}
-          {/* Summary Cards */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {Object.entries(totalByCurrency).map(([curr, total]) => (
-              <div
-                key={curr}
-                className="rounded-lg border border-border bg-card p-4"
-              >
-                <div className="text-sm text-muted">Total Spend</div>
-                <div className="mt-1 text-2xl font-bold tabular-nums">
-                  {formatCurrency(total, curr)}
+          {/* Summary Cards — grouped by currency */}
+          <div className="space-y-4">
+            {allCurrencies.map((curr) => {
+              const spend = totalByCurrency[curr] ?? 0;
+              const income = totalIncomeByCurrency[curr] ?? 0;
+              const hasIncome = income > 0;
+              const net = income - spend;
+              const label = isMultiCurrency ? "" : ` (${curr})`;
+              return (
+                <div key={curr}>
+                  {isMultiCurrency && (
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted">{curr}</span>
+                      <div className="h-px flex-1 bg-border" />
+                    </div>
+                  )}
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="rounded-lg border border-border bg-card p-4">
+                      <div className="text-sm text-muted">Total Spend{label}</div>
+                      <div className="mt-1 text-2xl font-bold tabular-nums">
+                        {formatCurrency(spend, curr)}
+                      </div>
+                    </div>
+                    {hasIncome && (
+                      <div className="rounded-lg border border-border bg-card p-4">
+                        <div className="text-sm text-muted">Total Income{label}</div>
+                        <div className="mt-1 text-2xl font-bold tabular-nums text-success">
+                          {formatCurrency(income, curr)}
+                        </div>
+                      </div>
+                    )}
+                    {hasIncome && (
+                      <div className="rounded-lg border border-border bg-card p-4">
+                        <div className="text-sm text-muted">Net{label}</div>
+                        <div className={`mt-1 text-2xl font-bold tabular-nums ${net >= 0 ? "text-success" : "text-danger"}`}>
+                          {net < 0 ? "-" : ""}{formatCurrency(Math.abs(net), curr)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-            <div className="rounded-lg border border-border bg-card p-4">
-              <div className="text-sm text-muted">Transactions</div>
-              <div className="mt-1 text-2xl font-bold">{data.total}</div>
-            </div>
-            {topCategory && (
+              );
+            })}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div className="rounded-lg border border-border bg-card p-4">
-                <div className="text-sm text-muted">Top Category</div>
-                <div className="mt-1 text-2xl font-bold">
-                  {topCategory.category}
-                </div>
+                <div className="text-sm text-muted">Transactions</div>
+                <div className="mt-1 text-2xl font-bold">{data.total}</div>
               </div>
-            )}
+            </div>
           </div>
 
           {/* Mini Spending Trend */}
-          {summary?.timeSeries && summary.timeSeries.length > 0 && (
+          {chartData.length > 0 && (
             <div className="rounded-lg border border-border bg-card p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-lg font-semibold">
-                  Spending Trend
+                  {hasIncomeExpenseSeries ? "Income & Spending" : "Spending Trend"}
                   {isConverting && (
                     <span className="ml-2 text-sm font-normal text-muted">
                       (converted to {globalCurrency})
@@ -187,7 +246,7 @@ export default function DashboardPage() {
                 </div>
               </div>
               <SpendingOverTime
-                data={summary.timeSeries}
+                data={chartData}
                 keys={timeSeriesKeys}
                 height={250}
                 variant="bar"
@@ -197,9 +256,17 @@ export default function DashboardPage() {
 
           {/* Recent Transactions */}
           <div className="rounded-lg border border-border bg-card p-4">
-            <h2 className="mb-4 text-lg font-semibold">
-              Recent Transactions
-            </h2>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold">
+                Recent Transactions
+              </h2>
+              <Link
+                href="/transactions"
+                className="text-sm text-muted hover:text-foreground transition-colors"
+              >
+                View all &rarr;
+              </Link>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
