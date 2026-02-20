@@ -62,3 +62,14 @@ export interface ConversionContext {
   rates: Record<string, number>;
   ratesBase: string;
 }
+
+export interface MonthlySubscription {
+  name: string;
+  category: string;
+  amount: number;
+  currency: string;
+  wallet: string;
+  monthsPaid: number;
+  lastPaidMonth: MonthKey;
+  monthlyOccurrences: MonthKey[];
+}
