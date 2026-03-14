@@ -4,9 +4,10 @@ import { useEffect, useState, useCallback } from "react";
 import { PageShell } from "@/components/layout/PageShell";
 import { MonthlySummaryTable } from "@/components/reports/MonthlySummaryTable";
 import { CategoryTable } from "@/components/reports/CategoryTable";
+import { SubscriptionList } from "@/components/reports/SubscriptionList";
 import { Select } from "@/components/ui/Select";
 import { useCurrency } from "@/components/providers/CurrencyProvider";
-import { Expense, MonthlySummary } from "@/types";
+import { Expense, MonthlySummary, MonthlySubscription } from "@/types";
 
 export default function ReportsPage() {
   const [year, setYear] = useState(new Date().getFullYear().toString());
@@ -14,6 +15,7 @@ export default function ReportsPage() {
   const { currency: globalCurrency, mode: currencyMode, wallet: globalWallet } = useCurrency();
   const [summaries, setSummaries] = useState<MonthlySummary[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [subscriptions, setSubscriptions] = useState<MonthlySubscription[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
@@ -40,15 +42,25 @@ export default function ReportsPage() {
       }
     }
 
+    // Subscription params: all-time data filtered only by wallet/currency
+    const subParams = new URLSearchParams();
+    if (globalWallet) subParams.set("wallet", globalWallet);
+    if (globalCurrency && currencyMode === "filter") {
+      subParams.set("currency", globalCurrency);
+    }
+
     try {
-      const [sumRes, expRes] = await Promise.all([
+      const [sumRes, expRes, subRes] = await Promise.all([
         fetch(`/api/summary?${sumParams}`),
         fetch(`/api/expenses?${expParams}`),
+        fetch(`/api/subscriptions?${subParams}`),
       ]);
       const sumData = await sumRes.json();
       const expData = await expRes.json();
+      const subData = await subRes.json();
       setSummaries(sumData.monthlySummaries ?? []);
       setExpenses(expData.expenses ?? []);
+      setSubscriptions(subData.subscriptions ?? []);
     } catch (e) {
       console.error("Failed to fetch reports:", e);
     } finally {
@@ -192,6 +204,22 @@ export default function ReportsPage() {
                 currency={currencyMode === "filter" ? globalCurrency : undefined}
                 convertedCurrency={currencyMode === "convert" ? globalCurrency : undefined}
               />
+            </div>
+
+            {/* Monthly Subscriptions */}
+            <div className="mt-6 rounded-lg border border-border bg-card p-4">
+              <div className="mb-4 flex items-baseline gap-2">
+                <h2 className="text-lg font-semibold">Monthly Subscriptions</h2>
+                {subscriptions.length > 0 && (
+                  <span className="text-sm text-muted">
+                    {subscriptions.length} recurring payment{subscriptions.length !== 1 ? "s" : ""} detected
+                  </span>
+                )}
+              </div>
+              <p className="mb-4 text-sm text-muted">
+                Payments with the exact same amount appearing in multiple months across all time.
+              </p>
+              <SubscriptionList subscriptions={subscriptions} />
             </div>
           </div>
         )}
